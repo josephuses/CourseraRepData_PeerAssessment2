@@ -1,0 +1,358 @@
+---
+title: "Health and Economic Impacts of Extreme Weather Events in the US (1950-2011)"
+author: "Joseph S. Tabadero, Jr."
+date: "September 26, 2017"
+output:
+  html_document:
+    toc: true
+    toc_float: 
+      collapsed: true
+      smooth_scroll: true
+    code_folding: show
+    fig_height: 6
+    fig_width: 6
+    theme: paper
+    highlight: kate
+    keep_md: yes
+  pdf_document:
+    fig_height: 6
+    fig_width: 6
+    highlight: kate
+    keep_tex: yes
+    latex_engine: xelatex
+  word_document:
+    fig_height: 6
+    fig_width: 6
+    highlight: kate
+header_includes:
+- \usepackage[t1]{fontenc}
+- \usepackage[utf8]{inputenc}
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE, comment = "#:>")
+```
+
+
+# Introduction
+
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such outcomes to the extent possible is a key concern.
+
+This project involves exploring the U.S. National Oceanic and Atmospheric
+Administration's (NOAA) storm database. This database tracks characteristics of major
+storms and weather events in the United States, including when and where they occur, as
+well as estimates of any fatalities, injuries, and property damage.
+
+The source code for this document can be found at my [github](https://github.com/josephuses/CourseraRepData_PeerAssessment2).
+
+# Synopsis 
+
+
+The analysis on the storm event database revealed that tornadoes had the most severe impact to population health across the United States between 1950 and 2011. When controlling for all other variables, excessive heat ranks second in the number of deaths caused. Floods and flash floods also rank high among the most dangerours severe weather events in terms of the number of deaths and injuries inflicted to the population. In terms of the economy, floods inflicted the most damage when damages to both crops and properties are combined. In terms of damages to properties, floods did the most damage to followed by hurricanes. Drought contributed the most damage to crops, followed by hurricanes. 
+
+# Data Processing {.tabset .tabset-fade .tabset-pills}
+
+*Please click on the tabs below to reveal the sections.*
+
+## The Data
+
+The [Storm Events Database](http://www.ncdc.noaa.gov/stormevents/ftp.jsp), provided by
+[National Climatic Data Center](http://www.ncdc.noaa.gov/) was used for the analysis of the economic and health impacts of the severe weather events to the United States between the years 1950 and 2011. The data is stored as a comma separated file and can be downloaded 
+[here](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2).
+There is also some documentation of the data available
+[here](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf).
+
+## Variables of Interest
+
+To determine the impacts of the severe conditions to health and to the economy of the US during 1950 to 2011, we need data regarding the types of severe weather events, the types of impact to health, and the amount of damage to crops and property. The variable `EVTYPE` contains information regarding the severe weather events during this period. From the documentation (p. 6), NOAA identifies 48 distinct types of severe weather events. `FATALITIES` contains the number of deaths for each event, while `INJURIES` contains the count of persons who were injured during an event. Finally, the information regarding the costs to the economy of each severe weather event are stored in the variables `PROPDMG`, `PROPDMGEXP`, `CROPDMG`, and `CROPDMGEXP`.
+
+`PROPDMG` and `CROPDMB` contain the cost estimates in US dollars of each event in terms of damage to properties and crops, respectively. From the documentation, estimates entered in actual dollars. However, if these estimates could not be retrieved from proper agencies, rough estimates were used. The rough estimates in `PROPDMG` and `CROPDMG` are encoded as three significant digits with the corresponding magnitude stored in the variables `PROPDMGEXP` and `CROPDMGEXP`, respectively. The magnitudes of the amount of `PROPDMG` and `CROPDMG` are encoded as alphabetical characters. The following alphabetical characters are used to signify magnitude: `K` for thousands, `M` for millions, and `B` for billions. In cases where no rough estimates were given, `PROPDMGEXP` and `CROPDMGEXP` are not available.
+
+## Manipulating, cleaning, and tidying the data {.tabset .tabset-fade .tabset-pills}
+
+The following steps were taken to prepare the data for analysis.
+
+* Download the data.
+* Import the data using the `fread` function of the [`data.table`](https://CRAN.R-project.org/package=data.table) package.
+* Convert the names of the variables to small letters.
+* Recode the types of events so that the total number of unique events is less than or equal to 48, the number of unique severe weather events identified by NOAA. This process includes removing non-alphabet characters and detecting patterns of names of the severe weather conditions in the encoded data.
+* Create a new variable each for cost of damage to properties and for cost of damage to crops, based on the variables `PROPDMG`, `PROPDMGEXP`, `CROPDMG`, and `DROPDMGEXP`.
+* Create a new variable for total damages to properties and crops.
+
+*Click on the tabs below to show each step of the data processing.*
+
+### Downloading the data
+
+The following code chunck downloads the data, saves it in a filename `stormdata.csv.bz2`, stores the data to the R object `storm`, and converts the column names to small letters.
+
+```{r cache=TRUE}
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+library(data.table)
+library(tidyverse)
+if(!file.exists("stormdata.csv.bz2")){
+download.file(url, destfile = "stormdata.csv.bz2", method = "curl")}
+# storm <- readr::read_csv("stormdata.csv.bz2")
+
+storm <- fread(sprintf("bzcat %s | tr -d '\\000'", "stormdata.csv.bz2"))
+colnames(storm) <- tolower(names(storm))
+```
+
+### Cleaning the data
+
+At this point, the number of unique events in the variable `evtype` is
+
+```{r}
+length(unique(storm$evtype))
+```
+
+This means that we need a lot of cleaning to do in order to bring this number down to 48.
+
+The following code chunk stores the unique severe weather conditions as identified by NOAA.
+
+
+```{r}
+storm_events <- c("winter weather", "winter storm", "wildfire", "waterspout", "volcanic ash", "tsunami",
+"tropical storm", "tropical depression", "tornado", "thunderstorm wind", "strong wind", "storm surge/tide",
+"sleet", "seiche", "rip current", "marine thunderstorm wind", "marine strong wind", "marine high wind",       
+"marine hail", "lightning", "lake-effect snow", "lakeshore flood", "ice storm", "hurricane/typhoon", 
+"high wind", "high surf", "heavy snow", "heavy rain", "heat", "hail",
+"funnel cloud", "frost/freeze", "freezing fog", "flood", "flash flood", "extreme cold/wind chill", 
+"excessive heat", "dust storm", "dust devil", "drought", "dense smoke", "dense fog",      
+"debris flow", "cold/wind chill", "coastal flood", "blizzard", "avalanche", "astronomical low tide")
+```
+
+We can now remove the non-alphabet characters from `evtype` and create a new variable `evtype2` which shows the names of the weather conditions if they match those in `storm_events`, and shows `others` otherwise. Note that I have removed the `s` whenever it appeared at the end of the entry so that entries like `flood` and `floods` will be counted as `flood`.
+
+```{r}
+storm <- storm %>%
+  mutate(evtype = gsub("s$", "", trimws(tolower(evtype))),
+         evtype = gsub("[[:blank:][:punct:]+]", "", evtype),
+         evtype = gsub("[:punct:]+]", "", evtype),
+         evtype = gsub("[0-9]+", " ", evtype),
+         evtype2 = case_when(evtype %in% storm_events ~ evtype,
+                             TRUE ~ "others")
+         )
+```
+
+
+We should see a reduction of unique severe weather condition names in `evtype2`.
+
+```{r}
+table(storm$evtype2)
+```
+
+While we have brought down the number of severe weather conditions below 48, we have brought it down too much. As a result, there are a lot of information lost in the severe weather events lumped to `others`.
+
+The following cdoe chunk identifies some patterns corresponding to the type of severe weather conditions identified by NOAA. However, we note that some entries identify more than one events. In some of such cases, the first event is the one retained. Some weather events can also easily be confused with each other such as flood, flash flood, and coastal flood. In such cases, unfortunately, no special care was taken to create patterns that will distinguish one from another. Therefore, discretion should be applied when looking at the results of the analysis where similar event names appear close to each other.
+
+
+```{r}
+coastal_flood <- "erosion/cstl flood|coastal flooding/erosion|coastal erosion|coastal flooding|cbeach flood|beach erosion/coastal flood|erosin|coastal/tidal flood|coastalflood|cstl flooding/erosion|river flood"
+blizzard <- "blizzard"
+freeze_frost <- "freeze|freezing rain/sleet|freezing rain/snow|freezing spray|frost|frost\\freeze|freezing rain sleet and light|blizzard/freezing rain|freezing rain|freezing rain and sleet|freezing rain sleet|damaging freeze|early freeze|early frost|freeze|hard freeze"
+storm_surge_tide <- "blow-out tide|surf|coastal surge|coastal storm|coastalstorm"
+dust_storm <- "blowing dust|duststorm"
+heavy_snow <- "blowing snow|wetsnow"
+flash_flood <- "breakup flooding|flash flood from ice jam|flashflood|flash flood|flood flash|flood/flash|flood watch/|flood/flash"
+wildfire <- "forest fire|brush fire|grass fire"
+cold_wind_chill <- "cold, cold temperature|cold wave|cold weather|cold wind chill temperature|cold/wind|cool spell"
+dust_devil <- "dust devel|dust devil waterspout"
+extreme_cold_wind_chill <- "excessive cold|extreme wind chill|extreme wind chill/blowing sno|extreme windchill|extreme cold|extreme/record cold"
+freezing_fog <- "fog and cold temperature"
+winter_storm <- "ice storm"
+hail <- "hail aloft|hail damage|hail flooding|hail storm|hail(0.85)|hail/icy road|hail/wind|hailstorm"
+drought <- "heat drought|heat wave drought|heat/drought"
+excessive_heat <- "hyperthermia|heat wave|heatburst|hightemperature|hot|excessiveheat"
+lake_effect_snow <- "heavy lake snow"
+high_wind <- "highwind"
+heavy_snow <- "heavysnow"
+lightning <- "lightning"
+ice_storm <- "ice|icy"
+hurricane <- "hurricane|typhoon"
+marine_hail <- "marinehail"
+thunderstorm <- "marinetst|thunderstorm"
+sleet <- "sleet"
+
+# Modify evtype2 further
+storm <- storm %>%
+  mutate(
+    evtype2 = case_when(
+      str_detect(evtype, coastal_flood) ~ "coastal flood",
+      str_detect(evtype,blizzard) ~ "blizzard",
+      str_detect(evtype,freeze_frost) ~ "freeze/frost",
+      str_detect(evtype,storm_surge_tide) ~ "storm surge/tide",
+      str_detect(evtype,dust_storm) ~ "dust storm",
+      str_detect(evtype,heavy_snow) ~ "heavy snow",
+      str_detect(evtype,flash_flood) ~ "flash flood",
+      str_detect(evtype,wildfire) ~ "wild fire",
+      str_detect(evtype,cold_wind_chill) ~ "cold wind/chill",
+      str_detect(evtype,dust_devil) ~ "dust devil",
+      str_detect(evtype,extreme_cold_wind_chill) ~ "extreme cold wind/chill",
+      str_detect(evtype,freezing_fog) ~ "freezing fog",
+      str_detect(evtype,winter_storm) ~ "winter storm",
+      str_detect(evtype,hail) ~ "hail",
+      str_detect(evtype,drought) ~ "drought",
+      str_detect(evtype,excessive_heat) ~ "excessive heat",
+      str_detect(evtype,lake_effect_snow) ~ "lake effect snow",
+      str_detect(evtype,thunderstorm) ~ "thunderstorm",
+      str_detect(evtype,high_wind) ~ "high wind",
+      str_detect(evtype,heavy_snow) ~ "heavy snow",
+      str_detect(evtype,lightning) ~ "lightning",
+      str_detect(evtype,ice_storm) ~ "ice storm",
+      str_detect(evtype,hurricane) ~ "hurricane",
+      str_detect(evtype,marine_hail) ~ "marine hail",
+      TRUE ~ evtype2
+    ) 
+  )
+```
+
+The following are now the unique events in `evtype2`
+
+```{r}
+table(storm$evtype2)
+```
+
+There number of names of unique severe weather conditions left in `evtype2` is
+
+```{r}
+length(unique(storm$evtype2))
+```
+
+For this analysis, we shall focus on these 26 variables. We also notice that we have greatly reduced the number of variables lumped in the entry `others`.
+
+
+### Calculating rough estimates
+
+
+In the code chunck below, I have created the columns `prop_dmg_exp` and `crop_dmg_exp`, which contains the powers of ten multipliers to `propdmb` and `cropdmg`. `NA`'s will be introduced since `propdmgexp` and `cropdmgexp` are only available for rough estimates.
+
+```{r}
+storm <- storm %>% 
+  mutate(
+    prop_dmg_exp = case_when(
+      propdmgexp %in% c('h', "H") ~ 2,
+      propdmgexp %in% c('k', "K") ~ 3,
+      propdmgexp %in% c('m', "M") ~ 6,
+      propdmgexp %in% c('b', "B") ~ 9,
+      !is.na(as.numeric(propdmgexp)) ~ as.numeric(propdmgexp),
+      propdmgexp %in% c('', '-', '?', '+') ~ 0
+    ),
+  crop_dmg_exp = case_when(
+      cropdmgexp %in% c('h', "H") ~ 2,
+      cropdmgexp %in% c('k', "K") ~ 3,
+      cropdmgexp %in% c('m', "M") ~ 6,
+      cropdmgexp %in% c('b', "B") ~ 9,
+      !is.na(as.numeric(cropdmgexp)) ~ as.numeric(cropdmgexp),
+      cropdmgexp %in% c('', '-', '?', '+') ~ 0
+    )
+  )
+
+```
+
+The following code chunks now computes the rough estimates, and stores the results to `prop_dmg` and `crop_dmg` for property damages and crop damages, respectively.
+
+```{r}
+storm <- storm %>%
+  mutate(
+    prop_dmg = case_when(
+      !is.na(prop_dmg_exp) ~ propdmg * 10^prop_dmg_exp,
+      TRUE ~ propdmg
+    ),
+    crop_dmg = case_when(
+      !is.na(crop_dmg_exp) ~ cropdmg * 10^crop_dmg_exp,
+      TRUE ~ propdmg
+    )
+  )
+```
+
+The amount in US dollars of the damages in crops and properties, and the total damages aggregated for every type of event for the between the years 1950 and 2011 is computed in the following code chunk.
+
+```{r}
+damage_by_event <- storm %>% group_by(evtype2) %>%
+  summarise(
+    crop_damage = sum(crop_dmg, na.rm = TRUE),
+    prop_damage = sum(prop_dmg, na.rm = TRUE),
+    total_event_damage = crop_damage + prop_damage
+  ) %>% 
+  arrange(total_event_damage) %>%
+  mutate(evtype2 = factor(evtype2, levels = .$evtype2))
+```
+
+# Analysis of the Data and Results {.tabset .tabset-fade .tabset-pills}
+
+*Click on the tabs below to show the analysis.*
+
+## Health Impacts
+
+The following code chunk calculates the total deaths and injuries caused by the severe weather conditions in the US between 1950 and 2011.
+
+```{r}
+storm %>% summarise(
+  event_fatalities = sum(fatalities, na.rm = TRUE),
+  event_injuries = sum(injuries, na.rm = TRUE)
+)
+```
+
+There were more than 15,000 deaths and 140,000 injuries in the population of the United States between 1950 and 2011 due to severe weather events.
+
+The following code chunk computes the number of fatalities and injuries in the US between 1950 and 2011 due to the severe weather events, and plots the frequencies using Cleveland dot plots.
+
+```{r}
+health_impact <- storm %>% group_by(evtype2) %>% 
+  summarise(
+    fatalities = sum(fatalities, na.rm = TRUE),
+    injuries = sum(injuries, na.rm = TRUE)
+) 
+
+health_impact2 <- gather(health_impact, impact, frequency, -evtype2)
+
+health_impact3 <- health_impact2 %>% mutate(event.impact = paste(evtype2, impact, sep=".")) %>%
+  mutate(event.impact = factor(event.impact, levels = event.impact[order(frequency)]))
+
+health_impact3 %>% group_by(impact) %>% top_n(12) %>%
+ggplot(aes(event.impact, frequency, color = impact, label = frequency)) + 
+  geom_segment(aes(x = event.impact, y = 0, xend = event.impact, yend = frequency)) + 
+  geom_point() + 
+  theme_bw() +
+  theme(panel.grid = element_blank()) + 
+  #geom_text(hjust = -.2, size = 3) +
+  scale_x_discrete(name = "Type of Event", breaks = health_impact3$event.impact, labels = health_impact3$evtype2) +
+  facet_wrap(~impact, scales = "free", nrow = 2) + 
+  ylab("Frequency") +
+  coord_flip() +
+  ggtitle("Health impact of severe weather events\naccording to type of health impact")
+```
+
+From the plot above, tornadoes caused the greatest impact to the health of population. Between 1950 and 2011, there were 5633 deaths and 91346 injuries due to tornado alone.
+
+During this period, the most number of deaths due to a tornado happened on July 12, 1995.
+
+## Damages to Crops and Properties
+
+The code below plots the cost in US dollars of damages to crops and properties.
+
+```{r}
+damage_by_event2 <- damage_by_event %>% 
+  gather(damage, value, -evtype2) %>%
+  mutate(event.damage = paste(evtype2, damage, sep=".")) %>%
+  mutate(event.damage = factor(event.damage, levels = event.damage[order(value)])) %>%
+  mutate(damage = factor(damage, labels = c("Crop Damage", "Property Damage","Total Event Damage")))
+
+damage_by_event2 %>% group_by(damage) %>% top_n(10) %>%
+  ggplot(aes(value, event.damage, label = value, color = damage)) +
+  geom_segment(aes(x=0, y=event.damage, xend = value, yend=event.damage)) + 
+  geom_point() + 
+  facet_wrap(~damage, scale = "free", nrow = 3) +
+  scale_y_discrete(name = "Type of Event", breaks = damage_by_event2$event.damage, labels = damage_by_event2$evtype2)  +
+  theme_bw() +
+  theme(panel.grid = element_blank()) +  
+  ggtitle("Amount of Damages to Crop and Property by Event Type",
+          subtitle = "in US Dollars, plotted at logarithmic scale") + 
+  xlab("Value in US Dollars")
+```
+
+From the plot above, we see that floods caused the largest economic loss to the United States between 1995 and 2011. During this period, more than 150 billion US dollars worth of properties were lost due to floods during this period.
+
+On the other hand, drought caused the most damage to crops, costing the United States more or less 15 billion US dollars worth of crops. During the same period, next to floods, hurricanes also caused large damages to both crops and properties.
